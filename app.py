@@ -258,26 +258,28 @@ Strict formatting and content rules:
 - Provide 3–5 concise, decision-focused insights in English.
 - Go straight to insights (trends, contrasts, patterns, inflection points, takeaways).
 - Do NOT describe the chart type, axes, legends, or methodology unless essential to the insight.
-- No sections such as “Max/Min/Outliers”.
+- No sections such as "Max/Min/Outliers".
 - Each insight must be a self-contained, meaningful sentence that focuses on business impact or strategic relevance.
 - Format the output as plain text bullet points using a single hyphen (-) followed by a space for each line.
-  Example:
-  - Sales grew sharply in Q4 compared to earlier quarters.
-  - Customer churn declined steadily across all regions.
 - Do NOT use any Markdown syntax (no *, **, #, >, `, or HTML tags).
 - Do NOT include numbering, emojis, or extra symbols.
-- Avoid generic statements (e.g., “data shows an increase”)—focus on interpretation.
-- Use approximate numbers ONLY if clearly legible; otherwise use comparative terms (“~higher”, “slight decline”).
+- Avoid generic statements (e.g., "data shows an increase")—focus on interpretation.
+- Use approximate numbers ONLY if clearly legible; otherwise use comparative terms ("~higher", "slight decline").
 - Never fabricate or assume numeric values that are unreadable.
 - Output must be plain text only: just bullet points, each starting on a new line.
 """
 
-
+QA_SYSTEM = """
+You are a data analyst assistant. Answer the user's question about the chart image clearly and concisely.
+- Provide direct, factual answers based on what you can see in the chart.
+- If numbers are clearly visible, use them. Otherwise, use comparative terms.
+- Keep responses focused and to-the-point.
+- If you cannot answer the question based on the chart, say so clearly.
+"""
 
 def vision_prompt(style: str) -> list:
-
     style_map = {
-        "Key insights": "Return concise bullet points, each a single sentencesss.",
+        "Key insights": "Return concise bullet points, each a single sentence.",
         "Executive summary": "Return tight bullets focused on so-what for decision-makers.",
         "Key insights (5 bullets)": "Return exactly 5 concise bullet points, each a single sentence.",
         "Executive summary (3 bullets)": "Return exactly 3 tight bullets focused on so-what for decision-makers.",
@@ -304,6 +306,24 @@ def run_vision(img_bytes: bytes, mime: str, style: str) -> str:
     )
     return resp.choices[0].message.content
 
+def ask_chart_question(img_bytes: bytes, mime: str, question: str) -> str:
+    """Answer a specific question about a chart image"""
+    content = [
+        {"type": "text", "text": question},
+        {"type": "image_url", "image_url": {"url": file_to_base64(img_bytes, mime=mime)}}
+    ]
+    resp = client.chat.completions.create(
+        model=VISION_MODEL,
+        messages=[
+            {"role": "system", "content": QA_SYSTEM},
+            {"role": "user", "content": content},
+        ],
+        temperature=0.2,
+        max_completion_tokens=400,
+        stream=False,
+    )
+    return resp.choices[0].message.content
+
 def combine_summaries(per_chart: List[str]) -> str:
     joined = "\n\n---\n\n".join([f"Chart {i+1}:\n{txt}" for i, txt in enumerate(per_chart)])
     system = "You are a senior analyst. Synthesize multiple chart insights into a single priority-focused brief."
@@ -326,44 +346,108 @@ def detect_mime(name: str) -> str:
     if name.endswith(".svg"): return "image/svg+xml"
     return "image/png"
 
+# Initialize session state
+if 'chart_data' not in st.session_state:
+    st.session_state.chart_data = []
+if 'show_qa' not in st.session_state:
+    st.session_state.show_qa = {}
+
 # --- UI ---
-st.markdown("<h2>📊 Chart Insight Agent — Insights Only</h2>", unsafe_allow_html=True)
+st.markdown("<h2>📊 Chart Insight Agent — Insights & Q&A</h2>", unsafe_allow_html=True)
+
 with st.sidebar:
     style = st.selectbox("Insight style", ["Key insights (5 bullets)", "Executive summary (3 bullets)", "One-liner takeaway"])
-    st.caption("Upload one or many chart images. Output = insights only.")
+    st.caption("Upload chart images to get automatic insights and ask custom questions.")
 
 uploads = st.file_uploader(
     "Drop chart images (PNG/JPG/WEBP/SVG) — multiple allowed",
     type=["png","jpg","jpeg","webp","svg"], accept_multiple_files=True,
-    help="High-resolution images with visible labels produce better insights. lalal"
+    help="High-resolution images with visible labels produce better insights."
 )
 
 if uploads:
+    # Store chart data in session state
+    st.session_state.chart_data = []
+    
     cols = st.columns(3)
     per_chart = []
+    
     for i, up in enumerate(uploads):
         mime = detect_mime(up.name)
         img_bytes = up.read()
+        
+        # Store for Q&A later
+        st.session_state.chart_data.append({
+            'name': up.name,
+            'bytes': img_bytes,
+            'mime': mime,
+            'index': i
+        })
 
-        # Preview
-        try:
-            img = Image.open(io.BytesIO(img_bytes))
-            with cols[i % 3]:
-                st.image(img, caption=up.name, use_container_width=True)
-        except Exception:
-            with cols[i % 3]:
-                st.write(f"📄 {up.name} (preview unavailable)")
+        # Preview - handle SVG differently
+        with cols[i % 3]:
+            if mime == "image/svg+xml":
+                # Display SVG directly using markdown
+                st.markdown(f'<img src="data:{mime};base64,{base64.b64encode(img_bytes).decode()}" width="100%">', unsafe_allow_html=True)
+                st.caption(up.name)
+            else:
+                # Use PIL for raster images
+                try:
+                    img = Image.open(io.BytesIO(img_bytes))
+                    st.image(img, caption=up.name, use_container_width=True)
+                except Exception:
+                    st.write(f"📄 {up.name}")
 
+        # Chart name header with Ask Question button
+        header_col1, header_col2 = st.columns([3, 1])
+        with header_col1:
+            st.markdown(f"**Insights — {up.name}**")
+        with header_col2:
+            qa_key = f"qa_{i}"
+            if st.button("🤔 Ask Question", key=f"btn_{i}", use_container_width=True):
+                st.session_state.show_qa[qa_key] = not st.session_state.show_qa.get(qa_key, False)
+        
+        # Q&A input section (appears when button clicked)
+        if st.session_state.show_qa.get(qa_key, False):
+            with st.container():
+                st.markdown("---")
+                question = st.text_input(
+                    "Your question:",
+                    key=f"q_{i}",
+                    placeholder="e.g., What's the trend? Which performed best? Any outliers?"
+                )
+                
+                col1, col2 = st.columns([1, 4])
+                with col1:
+                    ask_btn = st.button("Get Answer", key=f"ask_{i}", type="primary")
+                with col2:
+                    if st.button("Cancel", key=f"cancel_{i}"):
+                        st.session_state.show_qa[qa_key] = False
+                        st.rerun()
+                
+                if ask_btn and question:
+                    with st.spinner("Analyzing chart..."):
+                        try:
+                            answer = ask_chart_question(img_bytes, mime, question)
+                            st.success("**Answer:**")
+                            st.write(answer)
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+                
+                st.markdown("---")
+        
+        # Insights section
         with st.spinner(f"Deriving insights: {up.name}"):
             try:
                 insights = run_vision(img_bytes, mime, style)
             except Exception as e:
                 insights = f"⚠️ Could not analyze {up.name}: {e}"
-        st.markdown(f"**Insights — {up.name}**")
-        st.write(insights)
+        
+        st.markdown(insights)
         st.markdown("---")
         per_chart.append(insights)
 
+    # Combined insights for multiple charts
     if len(per_chart) > 1:
         st.subheader("Overall priorities (all charts)")
         with st.spinner("Synthesizing priorities..."):
@@ -373,5 +457,6 @@ if uploads:
                 st.write(combo)
             except Exception as e:
                 st.error(f"Failed to combine: {e}")
+
 else:
-    st.info("Upload chart images to get insights.")
+    st.info("📤 Upload chart images to get started with insights and Q&A.")
