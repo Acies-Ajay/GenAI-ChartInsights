@@ -53,7 +53,7 @@
 #         trends, rankings, outliers, ranges, and key takeaways. Optionally, get an overall cross-chart summary.
 #       </p>
 #     </div>
-#     """,
+#     """
 #     unsafe_allow_html=True,
 # )
 
@@ -234,6 +234,33 @@ load_dotenv()
 
 st.set_page_config(page_title="Chart Insights (Groq + Streamlit)", page_icon="📊", layout="wide")
 
+# --- 🌗 Dark / Light Mode Toggle ---
+st.sidebar.markdown("### 🌓 Theme")
+theme_choice = st.sidebar.radio("Choose theme:", ["Light", "Dark"], horizontal=True)
+
+# Apply theme using custom CSS
+if theme_choice == "Dark":
+    st.markdown("""
+        <style>
+        body { background-color: #0e1117; color: #fafafa; }
+        [data-testid="stAppViewContainer"] { background-color: #0e1117; color: #fafafa; }
+        [data-testid="stSidebar"] { background-color: #1c1f26; color: #fafafa; }
+        [data-testid="stHeader"] { background-color: #0e1117; }
+        h1, h2, h3, h4, h5, h6, p, span, div { color: #fafafa !important; }
+        </style>
+    """, unsafe_allow_html=True)
+else:
+    st.markdown("""
+        <style>
+        body { background-color: #ffffff; color: #111111; }
+        [data-testid="stAppViewContainer"] { background-color: #ffffff; color: #111111; }
+        [data-testid="stSidebar"] { background-color: #f8f9fa; color: #111111; }
+        [data-testid="stHeader"] { background-color: #ffffff; }
+        h1, h2, h3, h4, h5, h6, p, span, div { color: #111111 !important; }
+        </style>
+    """, unsafe_allow_html=True)
+
+
 VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 TEXT_MODEL   = "llama-3.3-70b-versatile"
 
@@ -255,7 +282,7 @@ You are a senior data analyst.
 Your task: produce ONLY decision-focused insights from a chart image.
 
 Strict formatting and content rules:
-- Provide 3–5 concise, decision-focused insights in English.
+- Provide concise, decision-focused insights in English.
 - Go straight to insights (trends, contrasts, patterns, inflection points, takeaways).
 - Do NOT describe the chart type, axes, legends, or methodology unless essential to the insight.
 - No sections such as “Max/Min/Outliers”.
@@ -276,8 +303,8 @@ Strict formatting and content rules:
 
 def vision_prompt(style: str) -> list:
     style_map = {
-        "Key insights (5 bullets)": "Return exactly 5 concise bullet points, each a single sentence.",
-        "Executive summary (3 bullets)": "Return exactly 3 tight bullets focused on so-what for decision-makers.",
+        "Key insights": "Return concise bullet points, each a single sentence.",
+        "Executive summary": "Return tight bullets focused on so-what for decision-makers.",
         "One-liner takeaway": "Return exactly one sentence capturing the single most important takeaway."
     }
     return [{
@@ -326,7 +353,7 @@ def detect_mime(name: str) -> str:
 # --- UI ---
 st.markdown("<h2>📊 Chart Insight Agent — Insights Only</h2>", unsafe_allow_html=True)
 with st.sidebar:
-    style = st.selectbox("Insight style", ["Key insights (5 bullets)", "Executive summary (3 bullets)", "One-liner takeaway"])
+    style = st.selectbox("Insight style", ["Key insights", "Executive summary", "One-liner takeaway"])
     st.caption("Upload one or many chart images. Output = insights only.")
 
 uploads = st.file_uploader(
