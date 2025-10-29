@@ -303,7 +303,7 @@ Strict formatting and content rules:
 
 def vision_prompt(style: str) -> list:
     style_map = {
-        "Key insights": "Return concise bullet points, each a single sentence.",
+        "Key insights": "Return concise bullet points, each a single sentencesss.",
         "Executive summary": "Return tight bullets focused on so-what for decision-makers.",
         "One-liner takeaway": "Return exactly one sentence capturing the single most important takeaway."
     }
