@@ -260,6 +260,7 @@ def combine_summaries(per_chart: List[str]) -> str:
     user = f"""Combine these per-chart texts into a unified set of priorities (avoid repetition, surface conflicts, note risks/opportunities):
 
 {joined}"""
+
     resp = client.chat.completions.create(
         model=TEXT_MODEL,
         messages=[{"role": "system", "content": system},
