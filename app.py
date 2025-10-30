@@ -516,8 +516,11 @@ with tab2:
     with col1:
         st.header("Previously Analyzed Charts")
     with col2:
-        if st.button("🗑️ Clear History", type="secondary", use_container_width=True):
+        if st.button("🗑️ Clear History", type="secondary", use_container_width=True, key="clear_history_btn"):
             st.session_state["history"] = []
+            # Clear the uploader to prevent re-analysis on rerun
+            if "analyze_uploader" in st.session_state:
+                del st.session_state["analyze_uploader"]
             st.rerun()
 
     if "history" not in st.session_state or len(st.session_state["history"]) == 0:
