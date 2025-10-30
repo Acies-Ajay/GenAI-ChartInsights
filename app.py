@@ -626,7 +626,7 @@ with tab1:
                             st.download_button(label=f"Download {upload_data['name']} (PDF)", data=single_pdf,
                                                file_name=f"{upload_data['name']}_insights.pdf", mime="application/pdf",
                                                 key=f"analyze_download_{i}")
-                            st.toast(f"Analyzed {upload_data['name']}", icon="✅")
+                            st.toast(f"Analyzed {upload_data['name']}")
                         except Exception as e:
                             st.error(f"Error analyzing {upload_data['name']}: {e}")
 
