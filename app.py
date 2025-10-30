@@ -140,7 +140,7 @@ You are a senior data analyst advising business stakeholders.
 Your task: produce decision-focused insights from a chart image in a business perspective.
 
 Strict rules:
-Provide 4–6 concise bullets; each must start with "- " and be one sentence.
+Provide 3–4 concise bullets; each must start with "- " and be one sentence.
 Focus on business meaning: trends, contrasts, inflection points, priorities, implications.
 Do NOT describe chart mechanics (type, axes, legend) unless essential to the insight.
 Avoid generic remarks and sections like "Max/Min/Outliers".
@@ -162,7 +162,7 @@ You are a data visualization analyst producing business-ready text about a chart
 Return plain text only, with the following sections (omit a section if not applicable):
 
 Insights:
-<3–6 concise, business-focused bullets. Each line starts with '- ' and is one sentence>
+<3–4 concise, business-focused bullets. Each line starts with '- ' and is one sentence>
 
 Key numbers (approx):
 <bullets like: '- Metric: ~value unit'> Use only if values are clearly legible. Otherwise skip this section.
