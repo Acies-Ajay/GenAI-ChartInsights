@@ -28,6 +28,8 @@ if 'chart_data' not in st.session_state:
     st.session_state.chart_data = []
 if 'show_qa' not in st.session_state:
     st.session_state.show_qa = {}
+if 'qa_active' not in st.session_state:
+    st.session_state.qa_active = {}
 
 # ----------------------------
 # Theme (Light/Dark) — CSS injector
@@ -323,6 +325,11 @@ if uploads:
             qa_key = f"qa_{i}"
             if st.button("🤔 Ask Question", key=f"btn_{i}", use_container_width=True):
                 st.session_state.show_qa[qa_key] = not st.session_state.show_qa.get(qa_key, False)
+                # Mark that Q&A is active for this chart
+                if st.session_state.show_qa[qa_key]:
+                    st.session_state.qa_active[i] = True
+                else:
+                    st.session_state.qa_active[i] = False
         
         # Q&A input section (appears when button clicked)
         if st.session_state.show_qa.get(qa_key, False):
@@ -340,6 +347,7 @@ if uploads:
                 with col2:
                     if st.button("Cancel", key=f"cancel_{i}"):
                         st.session_state.show_qa[qa_key] = False
+                        st.session_state.qa_active[i] = False
                         st.rerun()
                 
                 if ask_btn and question:
@@ -352,25 +360,27 @@ if uploads:
                             st.error(f"Error: {e}")
                 
                 st.markdown("---")
+        
+        # Only show automatic insights if Q&A is NOT active for this chart
+        if not st.session_state.qa_active.get(i, False):
+            # Insights section
+            with st.spinner(f"Analyzing: {up.name}"):
+                try:
+                    if mode == "Qualitative (Executive)":
+                        raw = run_qualitative(img_bytes, mime)
+                        bullets = normalize_bullets_minmax(raw, min_n=4, max_n=6)
+                        st.markdown(bullets)
+                        st.markdown("---")
+                        per_chart_texts.append(bullets)
+                    else:
+                        text = run_quantitative(img_bytes, mime)
+                        st.markdown(text)
+                        st.markdown("---")
+                        per_chart_texts.append(text)
+                except Exception as e:
+                    st.error(f"Error analyzing {up.name}: {e}")
 
-        # Insights section
-        with st.spinner(f"Analyzing: {up.name}"):
-            try:
-                if mode == "Qualitative (Executive)":
-                    raw = run_qualitative(img_bytes, mime)
-                    bullets = normalize_bullets_minmax(raw, min_n=4, max_n=6)
-                    st.markdown(bullets)
-                    st.markdown("---")
-                    per_chart_texts.append(bullets)
-                else:
-                    text = run_quantitative(img_bytes, mime)
-                    st.markdown(text)
-                    st.markdown("---")
-                    per_chart_texts.append(text)
-            except Exception as e:
-                st.error(f"Error analyzing {up.name}: {e}")
-
-    # Overall synthesis
+    # Overall synthesis - only if we have chart texts (i.e., no Q&A active)
     if len(per_chart_texts) >= 1:
         if mode == "Qualitative (Executive)":
             st.subheader("Overall summary (all charts)")
