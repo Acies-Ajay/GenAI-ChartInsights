@@ -223,19 +223,24 @@
 # )
 
 # app_insights.py — Chart Insights Only (Groq + Streamlit)
-import os, io, base64
+import os, io, base64, re
 from typing import List
 import streamlit as st
 from PIL import Image
 from groq import Groq
 from dotenv import load_dotenv
 
+# ----------------------------
+# Basic setup
+# ----------------------------
 load_dotenv()
-
 st.set_page_config(page_title="Chart Insights (Groq + Streamlit)", page_icon="📊", layout="wide")
 
 VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 TEXT_MODEL   = "llama-3.3-70b-versatile"
+
+THUMB_WIDTH = 240
+GRID_COLS   = 4
 
 def get_groq() -> Groq:
     api_key = os.getenv("GROQ_DEMO_API_KEY")
@@ -246,29 +251,166 @@ def get_groq() -> Groq:
 
 client = get_groq()
 
+# Initialize session state
+if 'chart_data' not in st.session_state:
+    st.session_state.chart_data = []
+if 'show_qa' not in st.session_state:
+    st.session_state.show_qa = {}
+
+# ----------------------------
+# Theme (Light/Dark) — CSS injector
+# ----------------------------
+def apply_theme(mode: str):
+    if mode == "Dark":
+        bg = "#0f172a"      # slate-900
+        panel = "#111827"   # gray-900
+        text = "#e5e7eb"    # gray-200
+        subtext = "#cbd5e1" # slate-300
+        accent = "#60a5fa"  # blue-400
+        border = "#334155"  # slate-700
+    else:
+        bg = "#ffffff"
+        panel = "#ffffff"
+        text = "#111827"    # gray-900
+        subtext = "#374151" # gray-700
+        accent = "#1f6feb"  # blue-600
+        border = "#e5e7eb"  # gray-200
+
+    st.markdown(
+        f"""
+        <style>
+        html, body, [data-testid="stAppViewContainer"] {{
+            background: {bg} !important;
+            color: {text} !important;
+        }}
+        .stMarkdown, .stText, .stCaption, p, li, span, div {{
+            color: {text} !important;
+        }}
+        h1, h2, h3, h4, h5, h6 {{
+            color: {text} !important;
+        }}
+        [data-testid="stSidebar"] {{
+            background: {panel} !important;
+            color: {text} !important;
+            border-right: 1px solid {border};
+        }}
+        [data-testid="stHeader"] {{
+            background: transparent !important;
+        }}
+        .st-emotion-cache-1y4p8pa, .st-emotion-cache-ue6h4q, .st-emotion-cache-1kyxreq {{
+            color: {subtext} !important;
+        }}
+        /* Cards / containers */
+        .st-emotion-cache-16idsys, .st-emotion-cache-13k62yr, .st-emotion-cache-1r6slb0 {{
+            background: {panel} !important;
+            color: {text} !important;
+            border: 1px solid {border} !important;
+            border-radius: 12px !important;
+        }}
+        /* Links */
+        a, a:visited {{ color: {accent} !important; }}
+        /* Code blocks (just in case) */
+        pre, code {{ color: {text} !important; }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+# ----------------------------
+# Utilities
+# ----------------------------
 def file_to_base64(file_bytes: bytes, mime: str = "image/png") -> str:
     b64 = base64.b64encode(file_bytes).decode("utf-8")
     return f"data:{mime};base64,{b64}"
 
-INSIGHTS_SYSTEM = """
-You are a senior data analyst.
-Your task: produce ONLY decision-focused insights from a chart image.
+def detect_mime(name: str) -> str:
+    name = (name or "").lower()
+    if name.endswith((".jpg",".jpeg")): return "image/jpeg"
+    if name.endswith(".webp"): return "image/webp"
+    if name.endswith(".svg"): return "image/svg+xml"
+    return "image/png"
 
-Strict formatting and content rules:
-- Provide 3–5 concise, decision-focused insights in English.
-- Go straight to insights (trends, contrasts, patterns, inflection points, takeaways).
-- Do NOT describe the chart type, axes, legends, or methodology unless essential to the insight.
-- No sections such as "Max/Min/Outliers".
-- Each insight must be a self-contained, meaningful sentence that focuses on business impact or strategic relevance.
-- Format the output as plain text bullet points using a single hyphen (-) followed by a space for each line.
-- Do NOT use any Markdown syntax (no *, **, #, >, `, or HTML tags).
-- Do NOT include numbering, emojis, or extra symbols.
-- Avoid generic statements (e.g., "data shows an increase")—focus on interpretation.
-- Use approximate numbers ONLY if clearly legible; otherwise use comparative terms ("~higher", "slight decline").
-- Never fabricate or assume numeric values that are unreadable.
-- Output must be plain text only: just bullet points, each starting on a new line.
+def normalize_bullets_minmax(text_block: str, min_n: int = 4, max_n: int = 6) -> str:
+    """
+    Produce between min_n and max_n bullet lines starting with "- ".
+    If too few lines, split by sentences; if too many, truncate.
+    """
+    if not text_block:
+        return ""
+    # split by lines first
+    lines = [l.strip() for l in text_block.splitlines() if l.strip()]
+    if len(lines) < min_n:
+        joined = " ".join(lines) if lines else text_block.strip()
+        sent = re.split(r"(?<=[.!?])\s+", joined)
+        lines = [s.strip() for s in sent if s.strip()]
+    # trim to range
+    lines = lines[:max_n]
+    # ensure "- " prefix
+    cleaned = []
+    for l in lines:
+        l = l.lstrip("•-*–—»· ").strip()
+        if not l.startswith("- "):
+            l = "- " + l
+        cleaned.append(l)
+    # still too few? pad harmlessly
+    while len(cleaned) < min_n:
+        cleaned.append("- (no further distinct insight identified)")
+    return "\n".join(cleaned[:max_n])
+
+# ----------------------------
+# Prompts (business perspective)
+# ----------------------------
+# Qualitative (Executive): bullets only (no options UI)
+QUAL_SYSTEM = """
+You are a senior data analyst advising business stakeholders.
+Your task: produce decision-focused insights from a chart image in a business perspective.
+
+Strict rules:
+Provide 4–6 concise bullets; each must start with "- " and be one sentence.
+Focus on business meaning: trends, contrasts, inflection points, priorities, implications.
+Do NOT describe chart mechanics (type, axes, legend) unless essential to the insight.
+Avoid generic remarks and sections like "Max/Min/Outliers".
+Use approximate numbers ONLY if clearly legible; never fabricate values.
+No HTML, no emojis, no numbering beyond the leading "- ".
+Output must be plain text only.
 """
 
+def qual_user_prompt() -> list:
+    return [{
+        "type": "text",
+        "text": ("Analyze this chart image and return 4–6 concise, business-focused bullet points. "
+                 "Avoid chart mechanics; emphasize impact, priorities, and actionable interpretation.")
+    }]
+
+# Quantitative (Developer): text-only sections, baked-in business perspective (no lens picker)
+QUANT_SYSTEM = """
+You are a data visualization analyst producing business-ready text about a chart image.
+Return plain text only, with the following sections (omit a section if not applicable):
+
+Insights:
+<3–6 concise, business-focused bullets. Each line starts with '- ' and is one sentence>
+
+Key numbers (approx):
+<bullets like: '- Metric: ~value unit'> Use only if values are clearly legible. Otherwise skip this section.
+
+Notables:
+<optional bullets for peaks, troughs, outliers, gaps, or segment contrasts. Each line starts with '- '>
+
+Rules:
+Prioritize what helps decisions on growth/revenue, risk/variability, and efficiency/cost.
+No HTML, no emojis, no numbering beyond the leading '- '.
+Never invent precise values; use qualitative phrasing if unclear.
+Keep it compact and readable.
+"""
+
+def quant_user_prompt() -> list:
+    return [{
+        "type": "text",
+        "text": ("Analyze this chart and produce the three sections as specified, text only. "
+                 "If a section does not apply, omit it. Keep a business perspective.")
+    }]
+
+# Q&A System Prompt
 QA_SYSTEM = """
 You are a data analyst assistant. Answer the user's question about the chart image clearly and concisely.
 - Provide direct, factual answers based on what you can see in the chart.
@@ -277,34 +419,38 @@ You are a data analyst assistant. Answer the user's question about the chart ima
 - If you cannot answer the question based on the chart, say so clearly.
 """
 
-def vision_prompt(style: str) -> list:
-    style_map = {
-        "Key insights": "Return concise bullet points, each a single sentence.",
-        "Executive summary": "Return tight bullets focused on so-what for decision-makers.",
-        "Key insights (5 bullets)": "Return exactly 5 concise bullet points, each a single sentence.",
-        "Executive summary (3 bullets)": "Return exactly 3 tight bullets focused on so-what for decision-makers.",
-        "One-liner takeaway": "Return exactly one sentence capturing the single most important takeaway."
-    }
-    return [{
-        "type": "text",
-        "text": f"""Analyze this chart image and produce {style_map[style]}
-Do NOT explain the chart type or structure. Deliver insights only."""
-    }]
-
-def run_vision(img_bytes: bytes, mime: str, style: str) -> str:
-    content = vision_prompt(style)
+# ----------------------------
+# LLM calls
+# ----------------------------
+def run_qualitative(img_bytes: bytes, mime: str) -> str:
+    content = qual_user_prompt()
     content.append({"type": "image_url", "image_url": {"url": file_to_base64(img_bytes, mime=mime)}})
     resp = client.chat.completions.create(
         model=VISION_MODEL,
         messages=[
-            {"role": "system", "content": INSIGHTS_SYSTEM},
+            {"role": "system", "content": QUAL_SYSTEM},
             {"role": "user", "content": content},
         ],
         temperature=0.2,
-        max_completion_tokens=600,
+        max_completion_tokens=700,
         stream=False,
     )
-    return resp.choices[0].message.content
+    return resp.choices[0].message.content.strip()
+
+def run_quantitative(img_bytes: bytes, mime: str) -> str:
+    content = quant_user_prompt()
+    content.append({"type": "image_url", "image_url": {"url": file_to_base64(img_bytes, mime=mime)}})
+    resp = client.chat.completions.create(
+        model=VISION_MODEL,
+        messages=[
+            {"role": "system", "content": QUANT_SYSTEM},
+            {"role": "user", "content": content},
+        ],
+        temperature=0.2,
+        max_completion_tokens=900,
+        stream=False,
+    )
+    return resp.choices[0].message.content.strip()
 
 def ask_chart_question(img_bytes: bytes, mime: str, question: str) -> str:
     """Answer a specific question about a chart image"""
@@ -326,52 +472,50 @@ def ask_chart_question(img_bytes: bytes, mime: str, question: str) -> str:
 
 def combine_summaries(per_chart: List[str]) -> str:
     joined = "\n\n---\n\n".join([f"Chart {i+1}:\n{txt}" for i, txt in enumerate(per_chart)])
-    system = "You are a senior analyst. Synthesize multiple chart insights into a single priority-focused brief."
-    user = f"""Combine these per-chart insights into a unified set of priorities (4–6 bullets), avoiding repetition:
+    system = (
+        "You are a senior analyst. Synthesize multiple chart write-ups into a single, priority-focused brief "
+        "for business leaders. Respond as 4–6 crisp bullets (plain text, each line starting with '- ')."
+    )
+    user = f"""Combine these per-chart texts into a unified set of priorities (avoid repetition, surface conflicts, note risks/opportunities):
 
 {joined}"""
     resp = client.chat.completions.create(
         model=TEXT_MODEL,
-        messages=[{"role": "system", "content": system},{"role": "user", "content": user}],
+        messages=[{"role": "system", "content": system},
+                  {"role": "user", "content": user}],
         temperature=0.2,
-        max_completion_tokens=400,
+        max_completion_tokens=450,
         stream=False,
     )
-    return resp.choices[0].message.content
+    return resp.choices[0].message.content.strip()
 
-def detect_mime(name: str) -> str:
-    name = (name or "").lower()
-    if name.endswith((".jpg",".jpeg")): return "image/jpeg"
-    if name.endswith(".webp"): return "image/webp"
-    if name.endswith(".svg"): return "image/svg+xml"
-    return "image/png"
-
-# Initialize session state
-if 'chart_data' not in st.session_state:
-    st.session_state.chart_data = []
-if 'show_qa' not in st.session_state:
-    st.session_state.show_qa = {}
-
-# --- UI ---
+# ----------------------------
+# UI
+# ----------------------------
 st.markdown("<h2>📊 Chart Insight Agent — Insights & Q&A</h2>", unsafe_allow_html=True)
 
 with st.sidebar:
-    style = st.selectbox("Insight style", ["Key insights (5 bullets)", "Executive summary (3 bullets)", "One-liner takeaway"])
+    st.subheader("⚙️ Mode & Theme")
+    mode = st.radio("Mode", ["Qualitative (Executive)", "Quantitative (Developer)"], index=0)
+    theme_choice = st.radio("Theme", ["Light", "Dark"], index=0)
     st.caption("Upload chart images to get automatic insights and ask custom questions.")
+
+apply_theme(theme_choice)
 
 uploads = st.file_uploader(
     "Drop chart images (PNG/JPG/WEBP/SVG) — multiple allowed",
-    type=["png","jpg","jpeg","webp","svg"], accept_multiple_files=True,
-    help="High-resolution images with visible labels produce better insights."
+    type=["png","jpg","jpeg","webp","svg"],
+    accept_multiple_files=True,
+    help="High-resolution charts with visible labels produce better insights."
 )
 
 if uploads:
-    # Store chart data in session state
+    # Clear and store chart data in session state
     st.session_state.chart_data = []
     
-    cols = st.columns(3)
-    per_chart = []
-    
+    cols = st.columns(GRID_COLS)
+    per_chart_texts: List[str] = []
+
     for i, up in enumerate(uploads):
         mime = detect_mime(up.name)
         img_bytes = up.read()
@@ -384,24 +528,25 @@ if uploads:
             'index': i
         })
 
-        # Preview - handle SVG differently
-        with cols[i % 3]:
+        # Thumbnail preview - handle SVG differently
+        with cols[i % GRID_COLS]:
             if mime == "image/svg+xml":
-                # Display SVG directly using markdown
-                st.markdown(f'<img src="data:{mime};base64,{base64.b64encode(img_bytes).decode()}" width="100%">', unsafe_allow_html=True)
+                st.markdown(f'<img src="data:{mime};base64,{base64.b64encode(img_bytes).decode()}" width="{THUMB_WIDTH}">', unsafe_allow_html=True)
                 st.caption(up.name)
             else:
-                # Use PIL for raster images
                 try:
                     img = Image.open(io.BytesIO(img_bytes))
-                    st.image(img, caption=up.name, use_container_width=True)
+                    st.image(img, caption=up.name, width=THUMB_WIDTH)
                 except Exception:
-                    st.write(f"📄 {up.name}")
+                    st.write(f"📄 {up.name} (preview unavailable)")
 
         # Chart name header with Ask Question button
         header_col1, header_col2 = st.columns([3, 1])
         with header_col1:
-            st.markdown(f"**Insights — {up.name}**")
+            if mode == "Qualitative (Executive)":
+                st.markdown(f"**Insights — {up.name}**")
+            else:
+                st.markdown(f"**Details — {up.name}**")
         with header_col2:
             qa_key = f"qa_{i}"
             if st.button("🤔 Ask Question", key=f"btn_{i}", use_container_width=True):
@@ -435,28 +580,37 @@ if uploads:
                             st.error(f"Error: {e}")
                 
                 st.markdown("---")
-        
+
         # Insights section
-        with st.spinner(f"Deriving insights: {up.name}"):
+        with st.spinner(f"Analyzing: {up.name}"):
             try:
-                insights = run_vision(img_bytes, mime, style)
+                if mode == "Qualitative (Executive)":
+                    raw = run_qualitative(img_bytes, mime)
+                    bullets = normalize_bullets_minmax(raw, min_n=4, max_n=6)
+                    st.markdown(bullets)
+                    st.markdown("---")
+                    per_chart_texts.append(bullets)
+                else:
+                    text = run_quantitative(img_bytes, mime)
+                    st.markdown(text)
+                    st.markdown("---")
+                    per_chart_texts.append(text)
             except Exception as e:
-                insights = f"⚠️ Could not analyze {up.name}: {e}"
-        
-        st.markdown(insights)
-        st.markdown("---")
-        per_chart.append(insights)
+                st.error(f"Error analyzing {up.name}: {e}")
 
-    # Combined insights for multiple charts
-    if len(per_chart) > 1:
-        st.subheader("Overall priorities (all charts)")
-        with st.spinner("Synthesizing priorities..."):
+    # Overall synthesis
+    if len(per_chart_texts) >= 1:
+        if mode == "Qualitative (Executive)":
+            st.subheader("Overall summary (all charts)")
+        else:
+            st.subheader("Overall priorities (all charts)")
+        with st.spinner("Synthesizing cross-chart brief..."):
             try:
-                combo = combine_summaries(per_chart)
-                st.success("Combined insights:")
-                st.write(combo)
+                combo = combine_summaries(per_chart_texts)
+                # Ensure bullets & contrast in both themes
+                combo_bullets = normalize_bullets_minmax(combo, min_n=4, max_n=6)
+                st.markdown(combo_bullets)
             except Exception as e:
-                st.error(f"Failed to combine: {e}")
-
+                st.error(f"Failed to combine summaries: {e}")
 else:
     st.info("📤 Upload chart images to get started with insights and Q&A.")
