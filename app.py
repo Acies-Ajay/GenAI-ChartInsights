@@ -15,8 +15,8 @@ st.set_page_config(page_title="Chart Insights (Groq + Streamlit)", page_icon="�
 VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 TEXT_MODEL   = "llama-3.3-70b-versatile"
 
-THUMB_WIDTH = 240
-GRID_COLS   = 4
+THUMB_WIDTH = 250
+GRID_COLS   = 2
 
 if "history" not in st.session_state:
     st.session_state["history"] = []
@@ -41,61 +41,177 @@ if 'qa_active' not in st.session_state:
 # ----------------------------
 # Theme (Light/Dark) — CSS injector
 # ----------------------------
-def apply_theme(mode: str):
-    if mode == "Dark":
-        bg = "#0f172a"      # slate-900
-        panel = "#111827"   # gray-900
-        text = "#e5e7eb"    # gray-200
-        subtext = "#cbd5e1" # slate-300
-        accent = "#60a5fa"  # blue-400
-        border = "#334155"  # slate-700
-    else:
-        bg = "#ffffff"
-        panel = "#ffffff"
-        text = "#111827"    # gray-900
-        subtext = "#374151" # gray-700
-        accent = "#1f6feb"  # blue-600
-        border = "#e5e7eb"  # gray-200
+def apply_theme(theme):
+    if theme == "Light":
+        gradient_animation = """
+            background: linear-gradient(270deg, #fdfbfb, #ebedee, #d7e1ec, #f5f7fa);
+            background-size: 800% 800%;
+            animation: gradientShift 15s ease infinite;
+        """
+        text_color = "#222"
+        accent_color = "linear-gradient(90deg, #667eea, #764ba2)"
+        button_glow = "rgba(102, 126, 234, 0.5)"
+        sidebar_text_color = "#111"
+        button_text_color = "#fff"
+        button_bg_gradient = "linear-gradient(90deg, #667eea, #764ba2)"
+        button_hover_glow = "rgba(102, 126, 234, 0.6)"
+        dataframe_text_color = "#222"
+        card_text_color = "#222"
+        upload_bg_color_outer = "rgba(255, 255, 255, 0.4)"
+        upload_bg_color_inner = "rgba(255, 255, 255, 0.4)"
+    else:  # 🌙 Dark mode
+        gradient_animation = """
+            background: linear-gradient(270deg, #0f2027, #203a43, #2c5364, #1c1c1c);
+            background-size: 800% 800%;
+            animation: gradientShift 18s ease infinite;
+        """
+        text_color = "#f0f0f0"
+        accent_color = "linear-gradient(90deg, #00c6ff, #0072ff)"
+        button_glow = "rgba(0, 114, 255, 0.5)"
+        sidebar_text_color = "#f0f0f0"
+        button_text_color = "#fff"
+        button_bg_gradient = "linear-gradient(90deg, #00c6ff, #0072ff)"
+        button_hover_glow = "rgba(0, 114, 255, 0.6)"
+        dataframe_text_color = "#f0f0f0"
+        card_text_color = "#f0f0f0"
+        upload_bg_color_outer = "transparent"
+        upload_bg_color_inner = "#000"  # 🔥 inner container pure black
 
     st.markdown(
         f"""
         <style>
-        html, body, [data-testid="stAppViewContainer"] {{
-            background: {bg} !important;
-            color: {text} !important;
+        /* 🌈 Animated Gradient Background */
+        @keyframes gradientShift {{
+            0% {{ background-position: 0% 50%; }}
+            50% {{ background-position: 100% 50%; }}
+            100% {{ background-position: 0% 50%; }}
         }}
-        .stMarkdown, .stText, .stCaption, p, li, span, div {{
-            color: {text} !important;
+
+        [data-testid="stAppViewContainer"] {{
+            {gradient_animation}
+            color: {text_color};
         }}
-        h1, h2, h3, h4, h5, h6 {{
-            color: {text} !important;
+
+        /* ✅ Force text color inside app */
+        [data-testid="stAppViewContainer"] * {{
+            color: {text_color} !important;
         }}
+
+        /* 🎨 Sidebar */
         [data-testid="stSidebar"] {{
-            background: {panel} !important;
-            color: {text} !important;
-            border-right: 1px solid {border};
+            border-radius: 16px;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.07);
+            margin-bottom: 10px;
+            backdrop-filter: blur(4px);
+            color: {card_text_color};
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(10px);
+            color: {sidebar_text_color};
         }}
-        [data-testid="stHeader"] {{
-            background: transparent !important;
+        [data-testid="stSidebar"] * {{
+            color: {sidebar_text_color} !important;
         }}
-        .st-emotion-cache-1y4p8pa, .st-emotion-cache-ue6h4q, .st-emotion-cache-1kyxreq {{
-            color: {subtext} !important;
+
+        /* 🌈 Gradient headings */
+        h1, h2, h3 {{
+            background: {accent_color};
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }}
-        /* Cards / containers */
-        .st-emotion-cache-16idsys, .st-emotion-cache-13k62yr, .st-emotion-cache-1r6slb0 {{
-            background: {panel} !important;
-            color: {text} !important;
-            border: 1px solid {border} !important;
-            border-radius: 12px !important;
+
+        /* 🌈 Buttons */
+        div.stButton > button {{
+            background: linear-gradient(90deg, #00c6ff, #0072ff) !important;
+            color: {button_text_color};
+            border: none;
+            border-radius: 12px;
+            padding: 0.6em 1.4em;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 10px {button_glow};
         }}
-        /* Links */
-        a, a:visited {{ color: {accent} !important; }}
-        /* Code blocks (just in case) */
-        pre, code {{ color: {text} !important; }}
+        div.stButton > button:hover {{
+            transform: scale(1.06);
+            box-shadow: 0 0 20px {button_hover_glow};
+        }}
+
+        /* 🌈 Chart Containers - Sidebar Only */
+        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div {{
+            border-radius: 16px;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.07);
+            margin-bottom: 10px;
+            backdrop-filter: blur(4px);
+            color: {card_text_color};
+        }}
+
+        /* ✅ File uploader outer container */
+        [data-testid="stFileUploader"] {{
+            background: {upload_bg_color_outer} !important;
+            border-radius: 12px;
+            padding: 12px;
+        }}
+
+        /* ✅ Inner uploader drop area */
+        .st-emotion-cache-1gulkj5 {{
+            background: rgba(255, 255, 255, 0.07) !important;
+            border-radius: 10px;
+            border: 1.5px solid rgba(255,255,255,0.15);
+            transition: all 0.3s ease-in-out;
+        }}
+        .st-emotion-cache-1gulkj5:hover {{
+            border-color: rgb(49, 51, 63);
+            box-shadow: 0 0 15px rgba(0, 114, 255, 0.3);
+        }}
+
+        /* ✅ Table color fix */
+        [data-testid="stTable"], [data-testid="stTable"] * {{
+            color: {dataframe_text_color} !important;
+        }}
+
+        /* 🎯 Hide watermark */
+        .st-emotion-cache-12fmjuu {{
+            display: none !important;
+        }}
+
+        button:focus:not(:active) {{
+            outline: none;
+            box-shadow: 0 0 0 0;
+        }}
+
+        .st-emotion-cache-jkfxgf p {{
+            font-size: 20px !important
+        }}
+        .st-emotion-cache-1vt4y43 {{
+            background: linear-gradient(90deg, #00c6ff, #0072ff) !important;
+            color: {button_text_color};
+            border: none;
+            border-radius: 12px;
+            padding: 0.6em 1.4em;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 10px {button_glow};
+        }}
+
+        .st-emotion-cache-xkcexs {{
+            background: linear-gradient(90deg, #00c6ff, #0072ff) !important;
+            color: {button_text_color};
+            border: none;
+            border-radius: 12px;
+            padding: 0.6em 1.4em;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            width: fit-content;
+            box-shadow: 0 4px 10px {button_glow};
+        }}
         </style>
+        
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
+
+
 
 # ----------------------------
 # Utilities
@@ -141,7 +257,6 @@ def normalize_bullets_minmax(text_block: str, min_n: int = 4, max_n: int = 6) ->
 # ----------------------------
 # Prompts (business perspective)
 # ----------------------------
-# Qualitative (Executive): bullets only (no options UI)
 QUAL_SYSTEM = """
 You are a senior data analyst advising business stakeholders.
 Your task: produce decision-focused insights from a chart image in a business perspective.
@@ -194,10 +309,10 @@ def quant_user_prompt() -> list:
 # Q&A System Prompt
 QA_SYSTEM = """
 You are a data analyst assistant. Answer the user's question about the chart image clearly and concisely.
-- Provide direct, factual answers based on what you can see in the chart.
-- If numbers are clearly visible, use them. Otherwise, use comparative terms.
-- Keep responses focused and to-the-point.
-- If you cannot answer the question based on the chart, say so clearly.
+Provide direct, factual answers based on what you can see in the chart.
+If numbers are clearly visible, use them. Otherwise, use comparative terms.
+Keep responses focused and to-the-point.
+If you cannot answer the question based on the chart, say so clearly.
 """
 
 # ----------------------------
@@ -332,13 +447,13 @@ def generate_pdf(per_chart_texts, overall_summary):
 # ----------------------------
 # UI
 # ----------------------------
-st.markdown("<h2>📊 Chart Insight Agent — Insights & Q&A</h2>", unsafe_allow_html=True)
+st.markdown("<h2>Chart Insight Agent — Insights & Q&A</h2>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.subheader("⚙️ Mode & Theme")
-    mode = st.radio("Mode", ["Qualitative (Executive)", "Quantitative (Developer)"], index=0)
+    mode = st.radio("Mode", ["Qualitative", "Quantitative"], index=0)
     theme_choice = st.radio("Theme", ["Light", "Dark"], index=0)
-    st.caption("Upload chart images to get automatic insights and ask custom questions.")
+    st.caption("Happy Analysing")
 
 apply_theme(theme_choice)
 
